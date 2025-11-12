@@ -150,7 +150,10 @@ try:
         stream,
     )
 
-    app.add_typer(init.app, name="init", help="Initialize DuckPond application")
+    # Register init function directly in main app
+    app.command(name="init", help="Initialize DuckPond application")(init.init)
+    
+    # Register command groups
     app.add_typer(config.app, name="config", help="Configuration management")
     app.add_typer(account.app, name="accounts", help="Manage accounts")
     app.add_typer(dataset.app, name="dataset", help="Manage datasets")
