@@ -63,6 +63,7 @@ def get_storage_backend(
     elif backend_type == "s3":
         from duckpond.storage.s3_backend import S3Backend
 
+        print(f"config: {config}")
         if "bucket" not in config:
             raise ValueError("S3 backend requires 'bucket' in config")
 

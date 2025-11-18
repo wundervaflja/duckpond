@@ -73,6 +73,12 @@ def load_yaml_config(config_path: Path | None = None) -> dict[str, Any]:
                 flattened["s3_region"] = storage["s3_region"]
             if "s3_endpoint_url" in storage:
                 flattened["s3_endpoint_url"] = storage["s3_endpoint_url"]
+            if "s3_access_key_id" in storage:
+                flattened["s3_access_key_id"] = storage["s3_access_key_id"]
+            if "s3_secret_access_key" in storage:
+                flattened["s3_secret_access_key"] = storage["s3_secret_access_key"]
+            if "s3_session_token" in storage:
+                flattened["s3_session_token"] = storage["s3_session_token"]
 
         if "duckdb" in yaml_data:
             duckdb = yaml_data["duckdb"]
@@ -123,6 +129,26 @@ def load_yaml_config(config_path: Path | None = None) -> dict[str, Any]:
             catalog = yaml_data["catalog"]
             if "enabled" in catalog:
                 flattened["catalog_enabled"] = catalog["enabled"]
+            if "backend" in catalog:
+                flattened["catalog_backend"] = catalog["backend"]
+            if "postgres_host" in catalog:
+                flattened["catalog_postgres_host"] = catalog["postgres_host"]
+            if "postgres_port" in catalog:
+                flattened["catalog_postgres_port"] = catalog["postgres_port"]
+            if "postgres_database" in catalog:
+                flattened["catalog_postgres_database"] = catalog["postgres_database"]
+            if "postgres_user" in catalog:
+                flattened["catalog_postgres_user"] = catalog["postgres_user"]
+            if "postgres_password" in catalog:
+                flattened["catalog_postgres_password"] = catalog["postgres_password"]
+            if "postgres_schema" in catalog:
+                flattened["catalog_postgres_schema"] = catalog["postgres_schema"]
+            if "s3_access_key_id" in catalog:
+                flattened["catalog_s3_access_key_id"] = catalog["s3_access_key_id"]
+            if "s3_secret_access_key" in catalog:
+                flattened["catalog_s3_secret_access_key"] = catalog["s3_secret_access_key"]
+            if "s3_session_token" in catalog:
+                flattened["catalog_s3_session_token"] = catalog["s3_session_token"]
 
         if "logging" in yaml_data:
             logging = yaml_data["logging"]
@@ -219,8 +245,66 @@ class Settings(BaseSettings):
         default=None,
         description="Custom S3 endpoint (for MinIO, etc.)",
     )
+    s3_access_key_id: str | None = Field(
+        default=None,
+        description="S3 access key ID for storage",
+    )
+    s3_secret_access_key: str | None = Field(
+        default=None,
+        description="S3 secret access key for storage",
+    )
+    s3_session_token: str | None = Field(
+        default=None,
+        description="S3 session token (for temporary credentials)",
+    )
 
     catalog_enabled: bool = Field(default=True, description="Enable DuckLake catalog")
+    catalog_backend: Literal["sqlite", "postgres"] = Field(
+        default="sqlite",
+        description="Catalog backend (sqlite for dev, postgres for production)",
+    )
+
+    # PostgreSQL catalog credentials (for production with access control)
+    catalog_postgres_host: str | None = Field(
+        default=None,
+        description="PostgreSQL host for catalog",
+    )
+    catalog_postgres_port: int = Field(
+        default=5432,
+        ge=1,
+        le=65535,
+        description="PostgreSQL port",
+    )
+    catalog_postgres_database: str | None = Field(
+        default=None,
+        description="PostgreSQL database name",
+    )
+    catalog_postgres_user: str | None = Field(
+        default=None,
+        description="PostgreSQL user",
+    )
+    catalog_postgres_password: str | None = Field(
+        default=None,
+        description="PostgreSQL password",
+    )
+    catalog_postgres_schema: str = Field(
+        default="public",
+        description="PostgreSQL schema",
+    )
+
+    # S3 credentials for catalog data access (separate from storage S3)
+    catalog_s3_access_key_id: str | None = Field(
+        default=None,
+        description="S3 access key ID for catalog superuser",
+    )
+    catalog_s3_secret_access_key: str | None = Field(
+        default=None,
+        description="S3 secret access key for catalog superuser",
+    )
+    catalog_s3_session_token: str | None = Field(
+        default=None,
+        description="S3 session token (for temporary credentials)",
+    )
 
     default_max_storage_gb: int = Field(default=100, ge=1, description="Default storage quota")
     default_max_query_memory_gb: int = Field(

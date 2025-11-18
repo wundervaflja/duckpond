@@ -8,6 +8,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
+from duckpond.accounts.manager import AccountManager
 from duckpond.catalog.manager import create_catalog_manager
 from duckpond.cli.output import (
     confirm,
@@ -19,6 +20,7 @@ from duckpond.cli.output import (
     print_warning,
 )
 from duckpond.config import get_settings
+from duckpond.db.session import create_session_factory, get_engine, get_session
 from duckpond.logging_config import get_logger
 
 app = typer.Typer(help="Manage datasets")
@@ -294,7 +296,7 @@ def upload(
         dir_okay=False,
         readable=True,
     ),
-    account: str = typer.Option(..., "--account", "-a", help="Account ID"),
+    account_id: str = typer.Option(..., "--account", "-a", help="Account ID"),
     catalog: bool = typer.Option(False, "--catalog", "-c", help="Register in catalog"),
 ) -> None:
     """Upload a file (CSV or Parquet) with optional catalog registration."""
@@ -329,19 +331,31 @@ def upload(
 
             from duckpond.storage import get_storage_backend
 
-            if settings.default_storage_backend == "local":
-                storage_path = Path(settings.local_storage_path) / "accounts"
-                storage_backend = get_storage_backend(
-                    backend_type="local", config={"path": str(storage_path)}
-                )
+            engine = get_engine()
+            session_factory = create_session_factory(engine)
+
+            account = None
+            async with get_session(session_factory) as session:
+                manager = AccountManager(session)
+
+                account = await manager.get_account_by_id(account_id)
+            if not account or not account.storage_backend:
+                if settings.default_storage_backend == "local":
+                    storage_path = Path(settings.local_storage_path) / "accounts"
+                    storage_backend = get_storage_backend(
+                        backend_type="local", config={"path": str(storage_path)}
+                    )
+                else:
+                    storage_backend = get_storage_backend(
+                        backend_type=settings.default_storage_backend, config=None
+                    )
             else:
                 storage_backend = get_storage_backend(
-                    backend_type=settings.default_storage_backend, config=None
+                    backend_type=account.storage_backend, config=account.storage_config
                 )
 
             try:
                 remote_key = f"{dataset_name}/{file_path.stem}.parquet"
-
                 conversion_config = ConversionConfig(
                     threads=4,
                     compression="snappy",
@@ -353,7 +367,7 @@ def upload(
                 result = await storage_backend.upload_file(
                     local_path=file_path,
                     remote_key=remote_key,
-                    account_id=account,
+                    account_id=account_id,
                     metadata={
                         "original_filename": file_path.name,
                         "dataset_name": dataset_name,
@@ -379,15 +393,16 @@ def upload(
                     print_info(f"  Schema fingerprint: {metrics['schema_fingerprint']}")
 
                 if catalog:
-                    catalog_manager = await create_catalog_manager(account, settings=settings)
-
+                    catalog_manager = await create_catalog_manager(account_id, settings=settings)
                     result_path = result["remote_path"] if isinstance(result, dict) else result
-
-                    if settings.default_storage_backend == "local":
-                        storage_path = Path(settings.local_storage_path) / "accounts"
-                        abs_parquet_path = storage_path / result_path
+                    if not account or not account.storage_backend:
+                        if settings.default_storage_backend == "local":
+                            storage_path = Path(settings.local_storage_path) / "accounts"
+                            abs_parquet_path = storage_path / result_path
+                        else:
+                            abs_parquet_path = f"s3://{settings.s3_bucket}/{result_path}"
                     else:
-                        abs_parquet_path = f"s3://{settings.s3_bucket}/{result_path}"
+                        abs_parquet_path = f"s3://{account.storage_config['bucket']}/{result_path}"
 
                     full_name = f'"{catalog_manager.catalog_name}".{dataset_name}'
                     create_sql = f"""
@@ -401,15 +416,15 @@ def upload(
 
                     print_info("\nNext steps:")
                     print_info(
-                        f"  - View dataset: duckpond dataset get {dataset_name} --account {account}"
+                        f"  - View dataset: duckpond dataset get {dataset_name} --account {account_id}"
                     )
                     print_info(
-                        f"  - Query: duckpond query execute --sql 'SELECT * FROM {full_name} LIMIT 10' --account {account}"
+                        f"  - Query: duckpond query execute --sql 'SELECT * FROM {full_name} LIMIT 10' --account {account_id}"
                     )
                 else:
                     print_info("File uploaded but not registered in catalog")
                     print_info(
-                        f"To register later, use: duckpond dataset upload {dataset_name} {file_path} -a {account} --catalog"
+                        f"To register later, use: duckpond dataset upload {dataset_name} {file_path} -a {account_id} --catalog"
                     )
 
             finally:

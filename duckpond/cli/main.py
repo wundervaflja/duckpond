@@ -147,6 +147,7 @@ try:
         db,
         init,
         query,
+        secrets,
         stream,
     )
 
@@ -159,6 +160,7 @@ try:
     app.add_typer(dataset.app, name="dataset", help="Manage datasets")
     app.add_typer(query.app, name="query", help="Execute SQL queries")
     app.add_typer(stream.app, name="stream", help="Manage streams")
+    app.add_typer(secrets.app, name="secrets", help="Manage DuckLake secrets for access control")
 
     app.add_typer(db.app, name="db", help="Database management commands")
     app.add_typer(api.app, name="api", help="API server management")

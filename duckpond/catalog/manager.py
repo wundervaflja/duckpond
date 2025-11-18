@@ -864,7 +864,7 @@ class DuckLakeCatalogManager:
 
 async def create_catalog_manager(
     account_id: str,
-    catalog_name: str = "default",
+    catalog_name: str = "catalog",
     settings=None,
 ) -> DuckLakeCatalogManager:
     """
@@ -894,6 +894,18 @@ async def create_catalog_manager(
 
         settings = get_settings()
 
+    from duckpond.accounts.models import Account
+    from duckpond.db.session import create_session_factory, get_engine, get_session
+
+    engine = get_engine()
+    session_factory = create_session_factory(engine)
+
+    async with get_session(session_factory) as session:
+        from sqlalchemy import select
+
+        result = await session.execute(select(Account).where(Account.account_id == account_id))
+        account = result.scalar_one_or_none()
+
     loop = asyncio.get_event_loop()
 
     def _setup_connection():
@@ -906,16 +918,40 @@ async def create_catalog_manager(
         conn.execute("LOAD ducklake")
         conn.execute("LOAD sqlite")
 
-        if settings.default_storage_backend == "s3":
+        # Determine storage backend and set S3 credentials
+        use_s3 = False
+        if account and account.storage_backend == "s3":
+            use_s3 = True
+        elif settings.default_storage_backend == "s3":
+            use_s3 = True
+
+        if use_s3:
             conn.execute("INSTALL httpfs")
             conn.execute("LOAD httpfs")
 
-            if hasattr(settings, "s3_access_key_id") and settings.s3_access_key_id:
-                conn.execute(f"SET s3_access_key_id='{settings.s3_access_key_id}'")
-            if hasattr(settings, "s3_secret_access_key") and settings.s3_secret_access_key:
-                conn.execute(f"SET s3_secret_access_key='{settings.s3_secret_access_key}'")
-            if hasattr(settings, "s3_region") and settings.s3_region:
-                conn.execute(f"SET s3_region='{settings.s3_region}'")
+            # Try to get credentials from account storage_config first, then fall back to settings
+            s3_access_key = None
+            s3_secret_key = None
+            s3_region = None
+
+            if account and account.storage_config:
+                s3_access_key = account.storage_config.get("aws_access_key_id")
+                s3_secret_key = account.storage_config.get("aws_secret_access_key")
+                s3_region = account.storage_config.get("region")
+
+            if not s3_access_key and hasattr(settings, "s3_access_key_id"):
+                s3_access_key = settings.s3_access_key_id
+            if not s3_secret_key and hasattr(settings, "s3_secret_access_key"):
+                s3_secret_key = settings.s3_secret_access_key
+            if not s3_region:
+                s3_region = settings.s3_region
+
+            if s3_access_key:
+                conn.execute(f"SET s3_access_key_id='{s3_access_key}'")
+            if s3_secret_key:
+                conn.execute(f"SET s3_secret_access_key='{s3_secret_key}'")
+            if s3_region:
+                conn.execute(f"SET s3_region='{s3_region}'")
 
         if settings.default_storage_backend == "s3":
             data_path = f"s3://{settings.s3_bucket}/accounts/{account_id}/tables/"

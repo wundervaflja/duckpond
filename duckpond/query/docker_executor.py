@@ -64,6 +64,7 @@ class DockerQueryExecutor:
         memory_limit_mb: int = 4096,
         cpu_limit: float = 2.0,
         validator: Optional[SQLValidator] = None,
+        aws_credentials: Optional[dict] = None,
     ) -> None:
         """
         Initialize Docker-based query executor.
@@ -76,6 +77,7 @@ class DockerQueryExecutor:
             memory_limit_mb: Memory limit for containers in MB
             cpu_limit: CPU limit (1.0 = 1 core)
             validator: SQL validator (uses default if not provided)
+            aws_credentials: Optional AWS credentials dict from account storage_config
         """
         self.account_id = account_id
         self.account_data_dir = account_data_dir
@@ -84,6 +86,7 @@ class DockerQueryExecutor:
         self.memory_limit_mb = memory_limit_mb
         self.cpu_limit = cpu_limit
         self.validator = validator or SQLValidator()
+        self.aws_credentials = aws_credentials
 
         logger.debug(
             f"Initialized DockerQueryExecutor for account {self.account_id}",
@@ -144,6 +147,7 @@ class DockerQueryExecutor:
                 docker_image=self.docker_image,
                 memory_limit_mb=self.memory_limit_mb,
                 cpu_limit=self.cpu_limit,
+                aws_credentials=self.aws_credentials,
             )
 
             try:
@@ -427,4 +431,5 @@ class DockerQueryExecutor:
             docker_image=docker_image,
             memory_limit_mb=memory_limit_mb,
             cpu_limit=cpu_limit,
+            aws_credentials=account.storage_config if account.storage_backend == "s3" else None,
         )

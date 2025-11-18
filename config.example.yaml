@@ -13,10 +13,10 @@
 server:
   # Host to bind the server to (0.0.0.0 allows external connections)
   host: 0.0.0.0
-  
+
   # Port to listen on
   port: 8000
-  
+
   # Number of worker processes (recommend: number of CPU cores)
   workers: 4
 
@@ -25,19 +25,24 @@ server:
 storage:
   # Storage backend: "local" or "s3"
   default_backend: local
-  
+
   # Local storage path (used when backend is "local")
   local_path: ~/.duckpond/data
-  
+
   # S3 bucket name (required when backend is "s3")
   s3_bucket: null
-  
+
   # AWS region for S3 bucket
   s3_region: us-east-1
-  
+
   # Custom S3 endpoint URL (for MinIO or other S3-compatible storage)
   # Set to null or omit for AWS S3
   s3_endpoint_url: null
+
+  # S3 credentials (required when backend is "s3")
+  s3_access_key_id: null
+  s3_secret_access_key: null
+  # s3_session_token: null  # Optional, for temporary credentials
 
 # Database Configuration
 # Configure the metadata database (SQLite or PostgreSQL)
@@ -46,16 +51,16 @@ database:
   # SQLite example: sqlite:///~/.duckpond/metadata.db
   # PostgreSQL example: postgresql://user:password@localhost:5432/duckpond
   url: sqlite:///~/.duckpond/metadata.db
-  
+
   # Connection pool size (number of connections to maintain)
   pool_size: 10
-  
+
   # Maximum overflow connections beyond pool_size
   max_overflow: 20
-  
+
   # Connection pool timeout in seconds
   pool_timeout: 30
-  
+
   # Connection recycle time in seconds (prevents stale connections)
   pool_recycle: 3600
 
@@ -93,7 +98,7 @@ limits:
 streaming:
   # Buffer size in records before flushing
   buffer_size: 100000
-  
+
   # Flush interval in seconds
   flush_interval_seconds: 60
 
@@ -108,30 +113,48 @@ upload:
 wal:
   # Enable WAL
   enabled: false
-  
+
   # WAL sync mode: fsync, fdatasync, async
   sync_mode: fdatasync
-  
+
   # WAL directory
   directory: ~/.duckpond/wal
 
 # Catalog Configuration
-# Configure DuckLake catalog
+# Configure DuckLake catalog with access control support
 catalog:
   # Enable catalog
   enabled: true
+
+  # Catalog backend: "sqlite" (dev) or "postgres" (production with access control)
+  backend: sqlite
+
+  # PostgreSQL catalog credentials (required for production with access control)
+  # These credentials are used to create DuckDB secrets for role-based access
+  # See: https://ducklake.select/docs/stable/duckdb/guides/access_control
+  postgres_host: null
+  postgres_port: 5432
+  postgres_database: null
+  postgres_user: null
+  postgres_password: null
+  postgres_schema: public
+
+  # S3 credentials for catalog data access (separate from storage S3)
+  # These are used for DuckDB secrets to control S3 access per role
+  s3_access_key_id: null
+  s3_secret_access_key: null
+  # s3_session_token: null  # Optional, for temporary credentials
 
 # Logging Configuration
 # Configure application logging behavior
 logging:
   # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
   level: INFO
-  
+
   # Log format: "json" or "text"
   # Use "json" for production (machine-readable)
   # Use "text" for development (human-readable)
   format: json
-
 # ============================================================================
 # Usage Instructions:
 # ============================================================================
@@ -178,6 +201,8 @@ logging:
 #   default_backend: s3
 #   s3_bucket: my-duckpond-data
 #   s3_region: us-west-2
+#   s3_access_key_id: AKIAIOSFODNN7EXAMPLE
+#   s3_secret_access_key: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
 #
 # MinIO Configuration:
 # --------------------
@@ -192,5 +217,34 @@ logging:
 #   url: postgresql://duckpond:password@postgres:5432/duckpond
 #   pool_size: 20
 #   max_overflow: 40
+#
+# DuckLake Access Control Configuration (Production):
+# -----------------------------------------------------
+# For production environments with role-based access control,
+# configure PostgreSQL catalog and S3 credentials:
+#
+# catalog:
+#   enabled: true
+#   backend: postgres
+#   postgres_host: localhost
+#   postgres_port: 5432
+#   postgres_database: ducklake_catalog
+#   postgres_user: ducklake_superuser
+#   postgres_password: secure_password_here
+#   postgres_schema: public
+#   s3_access_key_id: AKIAIOSFODNN7EXAMPLE
+#   s3_secret_access_key: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+#
+# storage:
+#   default_backend: s3
+#   s3_bucket: my-ducklake-bucket
+#   s3_region: us-east-1
+#
+# Then create DuckLake secrets:
+#   duckpond secrets create <account_id> --role superuser --execute
+#   duckpond secrets create <account_id> --role writer --execute
+#   duckpond secrets create <account_id> --role reader --execute
+#
+# See: duckpond secrets example
 #
 # ============================================================================
