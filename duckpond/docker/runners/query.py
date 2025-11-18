@@ -55,6 +55,7 @@ class QueryRunner:
         memory_limit_mb: int = 4096,
         cpu_limit: float = 2.0,
         startup_timeout: int = 10,
+        aws_credentials: Optional[Dict[str, str]] = None,
     ):
         """
         Initialize query execution runner.
@@ -67,6 +68,8 @@ class QueryRunner:
             memory_limit_mb: Memory limit in megabytes
             cpu_limit: CPU limit (1.0 = 1 core)
             startup_timeout: Maximum seconds to wait for startup
+            aws_credentials: Optional AWS credentials dict with keys:
+                aws_access_key_id, aws_secret_access_key, region
         """
         self.account_data_dir = account_data_dir
         self.account_id = account_id
@@ -75,6 +78,7 @@ class QueryRunner:
         self.memory_limit_mb = memory_limit_mb
         self.cpu_limit = cpu_limit
         self.startup_timeout = startup_timeout
+        self.aws_credentials = aws_credentials
 
         # Build container configuration
         self.config = self._build_config()
@@ -118,14 +122,37 @@ class QueryRunner:
             cpu_limit=self.cpu_limit,
         )
 
-        aws_env = DockerContainer.get_aws_credentials_env()
-        if aws_env:
+        # Add AWS credentials from account storage_config or environment
+        if self.aws_credentials:
+            # Use credentials from account storage_config
+            access_key = self.aws_credentials.get("aws_access_key_id")
+            secret_key = self.aws_credentials.get("aws_secret_access_key")
+            if not access_key or not secret_key:
+                raise ValueError("AWS credentials must include non-empty 'aws_access_key_id' and 'aws_secret_access_key'")
+            aws_env = {
+                "AWS_ACCESS_KEY_ID": access_key,
+                "AWS_SECRET_ACCESS_KEY": secret_key,
+            }
+            if "region" in self.aws_credentials:
+                aws_env["AWS_REGION"] = self.aws_credentials["region"]
+                aws_env["AWS_DEFAULT_REGION"] = self.aws_credentials["region"]
+
             config.add_env_from_dict(aws_env)
             logger.debug(
-                "added_aws_credentials",
+                "added_aws_credentials_from_account",
                 container_name=container_name,
                 keys=list(aws_env.keys()),
             )
+        else:
+            # Fall back to environment variables
+            aws_env = DockerContainer.get_aws_credentials_env()
+            if aws_env:
+                config.add_env_from_dict(aws_env)
+                logger.debug(
+                    "added_aws_credentials_from_env",
+                    container_name=container_name,
+                    keys=list(aws_env.keys()),
+                )
 
         return config
 

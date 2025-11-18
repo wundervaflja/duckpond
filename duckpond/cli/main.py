@@ -147,18 +147,18 @@ try:
         db,
         init,
         query,
+        secrets,
         stream,
     )
 
-    # Register init function directly in main app
     app.command(name="init", help="Initialize DuckPond application")(init.init)
-    
-    # Register command groups
+
     app.add_typer(config.app, name="config", help="Configuration management")
     app.add_typer(account.app, name="accounts", help="Manage accounts")
     app.add_typer(dataset.app, name="dataset", help="Manage datasets")
     app.add_typer(query.app, name="query", help="Execute SQL queries")
     app.add_typer(stream.app, name="stream", help="Manage streams")
+    app.add_typer(secrets.app, name="secrets", help="Manage DuckLake secrets for access control")
 
     app.add_typer(db.app, name="db", help="Database management commands")
     app.add_typer(api.app, name="api", help="API server management")

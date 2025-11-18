@@ -51,8 +51,24 @@ class LocalBackend(StorageBackend):
         Args:
             base_path: Root directory for all account data
         """
-        self.base_path = Path(base_path).resolve()
+        self.base_path = Path(base_path).expanduser().resolve()
         self.base_path.mkdir(parents=True, exist_ok=True)
+
+    def _build_tables_account_key(self, account_id: str, remote_key: str) -> str:
+        """Build full tables storage key with account prefix for local storage.
+
+        Overrides parent to use accounts/ subdirectory for consistency with
+        catalog storage and Docker volume mounts.
+
+        Args:
+            account_id: Account identifier
+            remote_key: Key without account prefix
+
+        Returns:
+            Full key with account prefix: "accounts/{account_id}/tables/{remote_key}"
+        """
+        remote_key = remote_key.lstrip("/")
+        return f"accounts/{account_id}/tables/{remote_key}"
 
     def _get_table_full_path(self, account_id: str, remote_key: str) -> Path:
         """Get full filesystem path for a file.
@@ -248,7 +264,6 @@ class LocalBackend(StorageBackend):
 
         temp_parquet_path = None
         conversion_metrics = None
-
         try:
             remote_upload_path = self._get_upload_full_path(account_id, upload_remote_key)
             remote_upload_path.parent.mkdir(parents=True, exist_ok=True)

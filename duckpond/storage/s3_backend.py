@@ -18,6 +18,9 @@ import aioboto3
 import duckdb
 from botocore.exceptions import ClientError
 
+from duckpond.conversion.config import ConversionConfig
+from duckpond.conversion.exceptions import ConversionError, UnsupportedFormatError
+from duckpond.conversion.factory import ConverterFactory
 from duckpond.exceptions import (
     FileNotFoundError as DuckPondFileNotFoundError,
 )
@@ -95,62 +98,68 @@ class S3Backend(StorageBackend):
 
         return kwargs
 
-    def _convert_to_parquet(self, local_path: Path) -> Path:
+    async def _convert_to_parquet(
+        self, local_path: Path, config: ConversionConfig | None = None
+    ) -> tuple[Path, dict]:
         """Convert a file to Parquet format using DuckDB.
+
 
         Args:
             local_path: Path to the source file
+            config: Optional conversion configuration
 
         Returns:
-            Path to the temporary Parquet file
+            Tuple of (parquet_path, metrics_dict)
 
         Raises:
             StorageBackendError: If conversion fails
         """
+        temp_parquet = None
+        converter = None
+
         try:
-            temp_parquet = tempfile.NamedTemporaryFile(suffix=".parquet", delete=False, mode="wb")
-            temp_parquet.close()
+            temp_fd = tempfile.NamedTemporaryFile(suffix=".parquet", delete=False, mode="wb")
+            temp_parquet = Path(temp_fd.name)
+            temp_fd.close()
 
-            file_ext = local_path.suffix.lower()
+            try:
+                converter = ConverterFactory.create_converter(local_path, config)
+            except UnsupportedFormatError as e:
+                raise StorageBackendError("s3", "convert_to_parquet", str(e)) from e
 
-            with duckdb.connect() as conn:
-                if file_ext == ".csv":
-                    conn.execute(f"""
-                        COPY (
-                            SELECT * FROM read_csv_auto('{local_path}')
-                        ) TO '{temp_parquet.name}' (FORMAT PARQUET)
-                    """)
-                elif file_ext == ".json":
-                    conn.execute(f"""
-                        COPY (
-                            SELECT * FROM read_json_auto('{local_path}')
-                        ) TO '{temp_parquet.name}' (FORMAT PARQUET)
-                    """)
-                elif file_ext == ".parquet":
-                    import shutil
+            try:
+                result = await converter.convert_to_parquet(local_path, temp_parquet)
+            except ConversionError as e:
+                raise StorageBackendError("s3", "convert_to_parquet", str(e)) from e
 
-                    shutil.copy2(local_path, temp_parquet.name)
-                    return Path(temp_parquet.name)
-                else:
-                    conn.execute(f"""
-                        COPY (
-                            SELECT * FROM read_auto('{local_path}')
-                        ) TO '{temp_parquet.name}' (FORMAT PARQUET)
-                    """)
+            metrics = {
+                "row_count": result.row_count,
+                "source_size_bytes": result.source_size_bytes,
+                "dest_size_bytes": result.dest_size_bytes,
+                "compression_ratio": result.compression_ratio,
+                "duration_seconds": result.duration_seconds,
+                "throughput_mbps": result.throughput_mbps,
+                "schema_fingerprint": result.schema_fingerprint,
+                "compression": result.compression,
+            }
 
-            return Path(temp_parquet.name)
-
+            return temp_parquet, metrics
         except Exception as e:
-            if "temp_parquet" in locals():
+            if temp_parquet and temp_parquet.exists():
                 try:
-                    os.unlink(temp_parquet.name)
+                    os.unlink(temp_parquet)
                 except OSError:
                     pass
+            if isinstance(e, StorageBackendError):
+                raise
             raise StorageBackendError(
                 "s3",
                 "convert_to_parquet",
                 f"Failed to convert {local_path} to Parquet: {str(e)}",
             ) from e
+        finally:
+            if converter:
+                converter.shutdown()
 
     async def upload_file(
         self,
@@ -159,7 +168,8 @@ class S3Backend(StorageBackend):
         account_id: str,
         metadata: dict[str, str] | None = None,
         convert_to_parquet: bool = True,
-    ) -> str:
+        conversion_config: ConversionConfig | None = None,
+    ) -> dict:
         """Upload a file to S3.
 
         Args:
@@ -170,7 +180,9 @@ class S3Backend(StorageBackend):
             convert_to_parquet: Whether to convert the file to Parquet format using DuckDB
 
         Returns:
-            Full remote path WITH account prefix
+            Dictionary containing:
+                - remote_path: Full remote path WITH account prefix
+                - metrics: Conversion metrics (if converted)
 
         Raises:
             FileNotFoundError: If local file doesn't exist
@@ -187,6 +199,7 @@ class S3Backend(StorageBackend):
         table_remote_key = Path(remote_key).with_suffix(".parquet").as_posix()
 
         temp_parquet_path: Path | None = None
+        conversion_metrics = None
 
         try:
             async with self._session.client(**self._get_client_kwargs()) as s3:
@@ -209,8 +222,10 @@ class S3Backend(StorageBackend):
                         )
                     else:
                         try:
-                            temp_parquet = self._convert_to_parquet(local_path)
-                            temp_parquet_path = Path(temp_parquet)
+                            (
+                                temp_parquet_path,
+                                conversion_metrics,
+                            ) = await self._convert_to_parquet(local_path, conversion_config)
 
                             await s3.upload_file(
                                 str(temp_parquet_path),
@@ -229,9 +244,15 @@ class S3Backend(StorageBackend):
                     except ClientError:
                         pass
 
-                    return table_full_key
+                    return {
+                        "remote_path": table_full_key,
+                        "metrics": conversion_metrics,
+                    }
                 else:
-                    return upload_full_key
+                    return {
+                        "remote_path": upload_full_key,
+                        "metrics": None,
+                    }
 
         except ClientError as e:
             if temp_parquet_path and temp_parquet_path.exists():

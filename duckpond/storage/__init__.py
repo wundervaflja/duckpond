@@ -53,7 +53,6 @@ def get_storage_backend(
         >>> backend = get_storage_backend("mock")
     """
     config = config or {}
-
     if backend_type == "local":
         from duckpond.storage.local_backend import LocalBackend
 

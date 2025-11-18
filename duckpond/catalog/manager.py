@@ -864,7 +864,7 @@ class DuckLakeCatalogManager:
 
 async def create_catalog_manager(
     account_id: str,
-    catalog_name: str = "default",
+    catalog_name: str = "catalog",
     settings=None,
 ) -> DuckLakeCatalogManager:
     """
@@ -885,14 +885,35 @@ async def create_catalog_manager(
         async with create_catalog_manager("account-123") as manager:
             datasets = await manager.list_datasets()
     """
+    import re
     from pathlib import Path
 
     import duckdb
+
+    # Validate account_id to prevent SQL injection
+    # Only allow alphanumeric characters, hyphens, and underscores
+    if not re.match(r'^[a-zA-Z0-9_-]+$', account_id):
+        raise ValueError(
+            f"Invalid account_id '{account_id}'. "
+            "Only alphanumeric characters, hyphens, and underscores are allowed."
+        )
 
     if settings is None:
         from duckpond.config import get_settings
 
         settings = get_settings()
+
+    from duckpond.accounts.models import Account
+    from duckpond.db.session import create_session_factory, get_engine, get_session
+
+    engine = get_engine()
+    session_factory = create_session_factory(engine)
+
+    async with get_session(session_factory) as session:
+        from sqlalchemy import select
+
+        result = await session.execute(select(Account).where(Account.account_id == account_id))
+        account = result.scalar_one_or_none()
 
     loop = asyncio.get_event_loop()
 
@@ -906,22 +927,51 @@ async def create_catalog_manager(
         conn.execute("LOAD ducklake")
         conn.execute("LOAD sqlite")
 
-        if settings.default_storage_backend == "s3":
+        # Determine storage backend and set S3 credentials
+        use_s3 = False
+        if account and account.storage_backend == "s3":
+            use_s3 = True
+        elif settings.default_storage_backend == "s3":
+            use_s3 = True
+
+        if use_s3:
             conn.execute("INSTALL httpfs")
             conn.execute("LOAD httpfs")
 
-            if hasattr(settings, "s3_access_key_id") and settings.s3_access_key_id:
-                conn.execute(f"SET s3_access_key_id='{settings.s3_access_key_id}'")
-            if hasattr(settings, "s3_secret_access_key") and settings.s3_secret_access_key:
-                conn.execute(f"SET s3_secret_access_key='{settings.s3_secret_access_key}'")
-            if hasattr(settings, "s3_region") and settings.s3_region:
-                conn.execute(f"SET s3_region='{settings.s3_region}'")
+            # Try to get credentials from account storage_config first, then fall back to settings
+            s3_access_key = None
+            s3_secret_key = None
+            s3_region = None
 
-        if settings.default_storage_backend == "s3":
+            if account and account.storage_config:
+                s3_access_key = account.storage_config.get("aws_access_key_id")
+                s3_secret_key = account.storage_config.get("aws_secret_access_key")
+                s3_region = account.storage_config.get("region")
+
+            if not s3_access_key and hasattr(settings, "s3_access_key_id"):
+                s3_access_key = settings.s3_access_key_id
+            if not s3_secret_key and hasattr(settings, "s3_secret_access_key"):
+                s3_secret_key = settings.s3_secret_access_key
+            if not s3_region:
+                s3_region = settings.s3_region
+
+            def _sql_escape(val):
+                return val.replace("'", "''") if val is not None else val
+            if s3_access_key:
+                conn.execute(f"SET s3_access_key_id='{_sql_escape(s3_access_key)}'")
+            if s3_secret_key:
+                conn.execute(f"SET s3_secret_access_key='{_sql_escape(s3_secret_key)}'")
+            if s3_region:
+                conn.execute(f"SET s3_region='{_sql_escape(s3_region)}'")
+
+        if account and account.storage_backend == "s3":
+            s3_bucket = account.storage_config.get("bucket") or settings.s3_bucket
+            data_path = f"s3://{s3_bucket}/{account_id}/tables/"
+        elif settings.default_storage_backend == "s3":
             data_path = f"s3://{settings.s3_bucket}/accounts/{account_id}/tables/"
         else:
-            local_storage_path = Path(settings.local_storage_path) / "accounts"
-            data_path = str(local_storage_path / account_id / "catalogs")
+            local_storage_path = Path(settings.local_storage_path)
+            data_path = str(local_storage_path / "accounts" / account_id / "tables")
 
         account_catalog_dir = Path(settings.local_storage_path) / "accounts" / account_id
         account_catalog_dir.mkdir(parents=True, exist_ok=True)
@@ -931,9 +981,12 @@ async def create_catalog_manager(
 
         catalog_sqlite_path = account_catalog_dir / f"{catalog_name}_catalog.sqlite"
 
+        # Escape single quotes in data_path for SQL
+        escaped_data_path = data_path.replace("'", "''")
+
         conn.execute(f"""
             ATTACH 'ducklake:sqlite:{catalog_sqlite_path}' AS "{catalog_name}"
-            (DATA_PATH '{data_path}')
+            (DATA_PATH '{escaped_data_path}')
         """)
 
         return conn, catalog_sqlite_path
