@@ -402,9 +402,10 @@ def upload(
                             abs_parquet_path = f"s3://{settings.s3_bucket}/{result_path}"
                     else:
                         if account.storage_backend == "s3":
-                            abs_parquet_path = (
-                                f"s3://{account.storage_config['bucket']}/{result_path}"
-                            )
+                            bucket = account.storage_config.get('bucket')
+                            if not bucket:
+                                raise ValueError(f"Missing 'bucket' in storage_config for account {account_id}")
+                            abs_parquet_path = f"s3://{bucket}/{result_path}"
                         else:
                             storage_path = Path(settings.local_storage_path)
                             abs_parquet_path = storage_path / result_path
