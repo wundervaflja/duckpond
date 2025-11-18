@@ -353,7 +353,6 @@ def upload(
                 storage_backend = get_storage_backend(
                     backend_type=account.storage_backend, config=account.storage_config
                 )
-
             try:
                 remote_key = f"{dataset_name}/{file_path.stem}.parquet"
                 conversion_config = ConversionConfig(
@@ -397,12 +396,18 @@ def upload(
                     result_path = result["remote_path"] if isinstance(result, dict) else result
                     if not account or not account.storage_backend:
                         if settings.default_storage_backend == "local":
-                            storage_path = Path(settings.local_storage_path) / "accounts"
+                            storage_path = Path(settings.local_storage_path)
                             abs_parquet_path = storage_path / result_path
                         else:
                             abs_parquet_path = f"s3://{settings.s3_bucket}/{result_path}"
                     else:
-                        abs_parquet_path = f"s3://{account.storage_config['bucket']}/{result_path}"
+                        if account.storage_backend == "s3":
+                            abs_parquet_path = (
+                                f"s3://{account.storage_config['bucket']}/{result_path}"
+                            )
+                        else:
+                            storage_path = Path(settings.local_storage_path)
+                            abs_parquet_path = storage_path / result_path
 
                     full_name = f'"{catalog_manager.catalog_name}".{dataset_name}'
                     create_sql = f"""

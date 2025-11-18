@@ -955,11 +955,14 @@ async def create_catalog_manager(
             if s3_region:
                 conn.execute(f"SET s3_region='{_sql_escape(s3_region)}'")
 
-        if settings.default_storage_backend == "s3":
+        if account and account.storage_backend == "s3":
+            s3_bucket = account.storage_config.get("bucket") or settings.s3_bucket
+            data_path = f"s3://{s3_bucket}/{account_id}/tables/"
+        elif settings.default_storage_backend == "s3":
             data_path = f"s3://{settings.s3_bucket}/accounts/{account_id}/tables/"
         else:
-            local_storage_path = Path(settings.local_storage_path) / "accounts"
-            data_path = str(local_storage_path / account_id / "catalogs")
+            local_storage_path = Path(settings.local_storage_path)
+            data_path = str(local_storage_path / "accounts" / account_id / "tables")
 
         account_catalog_dir = Path(settings.local_storage_path) / "accounts" / account_id
         account_catalog_dir.mkdir(parents=True, exist_ok=True)

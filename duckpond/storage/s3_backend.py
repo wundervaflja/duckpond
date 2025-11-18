@@ -249,7 +249,7 @@ class S3Backend(StorageBackend):
                         "metrics": conversion_metrics,
                     }
                 else:
-                    {
+                    return {
                         "remote_path": upload_full_key,
                         "metrics": None,
                     }
