@@ -102,8 +102,12 @@ class S3SecretManager:
                 return ""
             return value.replace("'", "''")
 
+        def quote_identifier(identifier: str) -> str:
+            # Escape embedded double quotes by doubling them
+            return f'"{identifier.replace("\"", "\"\"")}"'
+
         sql_parts = [
-            f"CREATE OR REPLACE SECRET {secret_name} (",
+            f"CREATE OR REPLACE SECRET {quote_identifier(secret_name)} (",
             "    TYPE s3,",
             "    PROVIDER config,",
             f"    KEY_ID '{escape_sql(creds.access_key_id)}',",
