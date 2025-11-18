@@ -946,12 +946,14 @@ async def create_catalog_manager(
             if not s3_region:
                 s3_region = settings.s3_region
 
+            def _sql_escape(val):
+                return val.replace("'", "''") if val is not None else val
             if s3_access_key:
-                conn.execute(f"SET s3_access_key_id='{s3_access_key}'")
+                conn.execute(f"SET s3_access_key_id='{_sql_escape(s3_access_key)}'")
             if s3_secret_key:
-                conn.execute(f"SET s3_secret_access_key='{s3_secret_key}'")
+                conn.execute(f"SET s3_secret_access_key='{_sql_escape(s3_secret_key)}'")
             if s3_region:
-                conn.execute(f"SET s3_region='{s3_region}'")
+                conn.execute(f"SET s3_region='{_sql_escape(s3_region)}'")
 
         if settings.default_storage_backend == "s3":
             data_path = f"s3://{settings.s3_bucket}/accounts/{account_id}/tables/"
