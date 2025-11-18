@@ -87,6 +87,21 @@ class S3SecretManager:
         """Get S3 secret name."""
         return f"s3_{self.account_id_safe}_{self.config.role.value}"
 
+    def _quote_identifier(self, identifier: str) -> str:
+        """
+        Quote a SQL identifier to prevent SQL injection.
+
+        Escapes embedded double quotes by doubling them per SQL standard.
+
+        Args:
+            identifier: The identifier to quote
+
+        Returns:
+            Quoted identifier safe for use in SQL statements
+        """
+        # Escape embedded double quotes by doubling them
+        return f'"{identifier.replace('"', '""')}"'
+
     def generate_secret_sql(self) -> str:
         """
         Generate SQL to create S3 secret.
@@ -102,12 +117,8 @@ class S3SecretManager:
                 return ""
             return value.replace("'", "''")
 
-        def quote_identifier(identifier: str) -> str:
-            # Escape embedded double quotes by doubling them
-            return f'"{identifier.replace("\"", "\"\"")}"'
-
         sql_parts = [
-            f"CREATE OR REPLACE SECRET {quote_identifier(secret_name)} (",
+            f"CREATE OR REPLACE SECRET {self._quote_identifier(secret_name)} (",
             "    TYPE s3,",
             "    PROVIDER config,",
             f"    KEY_ID '{escape_sql(creds.access_key_id)}',",
@@ -192,7 +203,8 @@ class S3SecretManager:
         )
 
         try:
-            conn.execute(f"DROP SECRET IF EXISTS {self.get_secret_name()}")
+            secret_name = self.get_secret_name()
+            conn.execute(f"DROP SECRET IF EXISTS {self._quote_identifier(secret_name)}")
 
             logger.info(
                 f"Dropped S3 secret for account {self.config.account_id}",
