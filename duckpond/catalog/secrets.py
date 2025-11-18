@@ -97,20 +97,25 @@ class S3SecretManager:
         secret_name = self.get_secret_name()
         creds = self.config.s3_creds
 
+        def escape_sql(value: Optional[str]) -> str:
+            if value is None:
+                return ""
+            return value.replace("'", "''")
+
         sql_parts = [
             f"CREATE OR REPLACE SECRET {secret_name} (",
             "    TYPE s3,",
             "    PROVIDER config,",
-            f"    KEY_ID '{creds.access_key_id}',",
-            f"    SECRET '{creds.secret_access_key}',",
-            f"    REGION '{creds.region}'",
+            f"    KEY_ID '{escape_sql(creds.access_key_id)}',",
+            f"    SECRET '{escape_sql(creds.secret_access_key)}',",
+            f"    REGION '{escape_sql(creds.region)}'",
         ]
 
         if creds.endpoint_url:
-            sql_parts.insert(-1, f"    ENDPOINT '{creds.endpoint_url}',")
+            sql_parts.insert(-1, f"    ENDPOINT '{escape_sql(creds.endpoint_url)}',")
 
         if creds.session_token:
-            sql_parts.insert(-1, f"    SESSION_TOKEN '{creds.session_token}',")
+            sql_parts.insert(-1, f"    SESSION_TOKEN '{escape_sql(creds.session_token)}',")
 
         sql_parts.append(")")
 
