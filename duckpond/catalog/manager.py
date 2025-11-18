@@ -885,9 +885,18 @@ async def create_catalog_manager(
         async with create_catalog_manager("account-123") as manager:
             datasets = await manager.list_datasets()
     """
+    import re
     from pathlib import Path
 
     import duckdb
+
+    # Validate account_id to prevent SQL injection
+    # Only allow alphanumeric characters, hyphens, and underscores
+    if not re.match(r'^[a-zA-Z0-9_-]+$', account_id):
+        raise ValueError(
+            f"Invalid account_id '{account_id}'. "
+            "Only alphanumeric characters, hyphens, and underscores are allowed."
+        )
 
     if settings is None:
         from duckpond.config import get_settings
@@ -972,9 +981,12 @@ async def create_catalog_manager(
 
         catalog_sqlite_path = account_catalog_dir / f"{catalog_name}_catalog.sqlite"
 
+        # Escape single quotes in data_path for SQL
+        escaped_data_path = data_path.replace("'", "''")
+
         conn.execute(f"""
             ATTACH 'ducklake:sqlite:{catalog_sqlite_path}' AS "{catalog_name}"
-            (DATA_PATH '{data_path}')
+            (DATA_PATH '{escaped_data_path}')
         """)
 
         return conn, catalog_sqlite_path
