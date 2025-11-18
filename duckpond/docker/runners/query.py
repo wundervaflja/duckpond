@@ -125,9 +125,13 @@ class QueryRunner:
         # Add AWS credentials from account storage_config or environment
         if self.aws_credentials:
             # Use credentials from account storage_config
+            access_key = self.aws_credentials.get("aws_access_key_id")
+            secret_key = self.aws_credentials.get("aws_secret_access_key")
+            if not access_key or not secret_key:
+                raise ValueError("AWS credentials must include non-empty 'aws_access_key_id' and 'aws_secret_access_key'")
             aws_env = {
-                "AWS_ACCESS_KEY_ID": self.aws_credentials.get("aws_access_key_id", ""),
-                "AWS_SECRET_ACCESS_KEY": self.aws_credentials.get("aws_secret_access_key", ""),
+                "AWS_ACCESS_KEY_ID": access_key,
+                "AWS_SECRET_ACCESS_KEY": secret_key,
             }
             if "region" in self.aws_credentials:
                 aws_env["AWS_REGION"] = self.aws_credentials["region"]
